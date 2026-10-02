@@ -9,14 +9,14 @@ class CPRScanner:
     def __init__(self):
         pass
 
-    def load_bhav_copy(self, zip_path):
-        """Loads the CSV from the ZIP file into a DataFrame."""
+    def load_bhav_copy(self, zip_input):
+        """Loads the CSV from a ZIP file (filepath string or file-like object) into a DataFrame."""
         try:
-            with zipfile.ZipFile(zip_path, 'r') as z:
+            with zipfile.ZipFile(zip_input, 'r') as z:
                 # Find the first CSV file
                 csv_files = [f for f in z.namelist() if f.lower().endswith('.csv')]
                 if not csv_files:
-                    raise ValueError(f"No CSV found in {zip_path}")
+                    raise ValueError("No CSV found in the ZIP archive.")
                 
                 # Read CSV
                 df = pd.read_csv(z.open(csv_files[0]))
@@ -35,7 +35,7 @@ class CPRScanner:
                 
                 return df
         except Exception as e:
-            print(f"Error loading {zip_path}: {e}")
+            print(f"Error loading ZIP file: {e}")
             return None
 
     def calculate_cpr(self, high, low, close):
@@ -79,9 +79,7 @@ class CPRScanner:
         return min(available_strikes, key=lambda x: abs(x - spot_price))
 
     def process_data(self, today_file, yesterday_file):
-        print(f"Processing Today for CPR: {today_file}")
-        print(f"Processing Yesterday for CPR: {yesterday_file}")
-
+        """Processes today and yesterday bhav copy files to run CPR Scanner."""
         df_today = self.load_bhav_copy(today_file)
         df_yest = self.load_bhav_copy(yesterday_file)
 
@@ -92,7 +90,6 @@ class CPRScanner:
         # Support both Stock Options (STO) and Index Options (IDO)
         yest_opts = df_yest[df_yest['FinInstrmTp'].isin(['STO', 'IDO'])].copy()
         
-        print("Indexing Yesterday's option data for CPR...")
         yest_lookup = {}
         for idx, row in yest_opts.iterrows():
             key = (row['TckrSymb'], float(row['StrkPric']), row['OptnTp'], row['XpryDt'])
@@ -111,7 +108,6 @@ class CPRScanner:
 
         # Get unique symbols from futures
         symbols = today_futs['TckrSymb'].unique()
-        print(f"Found {len(symbols)} underlying symbols in Futures.")
 
         for symbol in symbols:
             futs_sym = today_futs[today_futs['TckrSymb'] == symbol]
@@ -236,7 +232,7 @@ class CPRScanner:
     def generate_excel_writer(self, df, output_writer_or_path, top_n=5):
         """
         Generates formatted Excel sheets for CPR Scanner.
-        Accepts either file path string or ExcelWriter / BytesIO.
+        Accepts either file path string or ExcelWriter / BytesIO object.
         """
         if isinstance(output_writer_or_path, str):
             writer = pd.ExcelWriter(output_writer_or_path, engine='openpyxl')
@@ -309,7 +305,7 @@ class CPRScanner:
         # Sheet 7: Lower Value CPR
         build_side_by_side_sheet('Is_Lower_Value_CPR', 'Lower Value CPR', 'Lower Value CPR CE', 'Lower Value CPR PE')
 
-        # Sheet 7: Top N Output
+        # Sheet 8: Top N Output
         metrics = [
             ('OpnIntrst', f'Top {top_n} Open Interest'),
             ('ChngInOpnIntrst', f'Top {top_n} Change in OI'),
@@ -354,15 +350,3 @@ class CPRScanner:
 
         if should_close:
             writer.close()
-
-if __name__ == "__main__":
-    import glob
-    files = sorted(glob.glob("BhavCopy*.zip"))
-    if len(files) >= 2:
-        scanner = CPRScanner()
-        df = scanner.process_data(files[-1], files[-2])
-        if df is not None:
-            os.makedirs("CPR EOD SCANNER", exist_ok=True)
-            output_file = os.path.join("CPR EOD SCANNER", "CPR_Test_Output.xlsx")
-            scanner.generate_excel_writer(df, output_file)
-            print(f"Saved CPR Test Output to {output_file}")
